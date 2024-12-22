@@ -1,23 +1,42 @@
 from tinygrad import Tensor, nn
 
 
+class Sequential:
+    def __init__(self, *layers):
+        self.layers = layers
+
+    def __call__(self, x):
+        for l in self.layers:
+            x = l(x)
+        return x
+
+
 # TODO: Experiment with different initializations
 # TODO: after that, a dense real-value feature vector is gener-
 #       ated, which is finally fed into the sigmoid function for CTR
 #       prediction: yDN N = σ(W |H|+1 · aH + b|H|+1), where |H|
 #       is the number of hidden layers.
-# TODO: Add dropout + batch/ layer norm
 # https://arxiv.org/abs/1703.04247
 class DeepNet:
     def __init__(self, input_dim, num_layers, hidden_dim):
-        self.l1 = nn.Linear(input_dim, hidden_dim)
-        self.layers = [nn.Linear(hidden_dim, hidden_dim)]
+        self.l1 = Sequential(
+            nn.Linear(input_dim, hidden_dim),  # TODO: Try out layer norm as well.
+            nn.BatchNorm(hidden_dim),
+        )
+
+        self.layers = [
+            Sequential(
+                nn.Linear(hidden_dim, hidden_dim),
+                nn.BatchNorm(hidden_dim),  # TODO: Try out layer norm as well.
+            )
+            for _ in range(num_layers)
+        ]
         self.final_layer = nn.Linear(hidden_dim, 1)
 
     def __call__(self, x):
-        x = self.l1(x).relu()
+        x = self.l1(x).dropout(0.5).relu()
         for layer in self.layers:
-            x = layer(x).relu()
+            x = layer(x).dropout(0.5).relu()
 
         return self.final_layer(x)
 
@@ -45,7 +64,6 @@ class DeepFM:
         )
 
     def __call__(self, x):
-        # convert sparse x to dense x by concatenating feature embeddings
         dense_x_o1_list = [
             embed_layer(
                 x[
@@ -66,7 +84,7 @@ class DeepFM:
         ]
         dense_x_o2 = Tensor.cat(*dense_x_o2_list, dim=1)
 
-        y_fm = self.fm(dense_x_o1, dense_x_o2_list, dense_x_o2)
+        y_fm = self.fm(dense_x_o1, dense_x_o2_list)
         y_dnn = self.deep(dense_x_o2).sum(axis=1)
 
         return y_fm + y_dnn + self.bias
@@ -75,10 +93,10 @@ class DeepFM:
     # 0.5 * \sum^{k}_{f=1}( (\sum^{n}_{i=1} v_{i, f} x_{i} )^{2} - \sum^{n}_{i=1} v^{2}_{i, f} x^{2}_{i} )
     # t1 = (\sum^{n}_{i=1} v_{i, f} x_{i} )^{2}
     # t2 = \sum^{n}_{i=1} v^{2}_{i, f} x^{2}_{i}
-    def fm(self, fm_o1, dense_x_o2_list, dense_x_o2):
+    def fm(self, fm_o1, dense_x_o2_list):
         # equivalent to (\sum^{n}_{i=1} v_{i, f} x_{i} )^{2}, because x is one hot encoded
         t1 = sum(dense_x_o2_list).square()
-        t2 = sum([e*e for e in dense_x_o2_list])
+        t2 = sum([e * e for e in dense_x_o2_list])
 
         fm_o2 = 0.5 * (t1 - t2).sum(axis=1)
 

@@ -64,16 +64,6 @@ class DeepFM:
         )
 
     def __call__(self, x):
-        dense_x_o1_list = [
-            embed_layer(
-                x[
-                    :, sum(self.feature_sizes[:i]) : sum(self.feature_sizes[: i + 1])
-                ].argmax(axis=1)
-            )
-            for i, embed_layer in enumerate(self.o1_embeddings)
-        ]
-        dense_x_o1 = Tensor.cat(*dense_x_o1_list, dim=1)
-
         dense_x_o2_list = [
             embed_layer(
                 x[
@@ -84,23 +74,34 @@ class DeepFM:
         ]
         dense_x_o2 = Tensor.cat(*dense_x_o2_list, dim=1)
 
-        y_fm = self.fm(dense_x_o1, dense_x_o2_list)
+        y_fm = self.fm(x, dense_x_o2_list)
         y_dnn = self.deep(dense_x_o2).sum(axis=1)
 
-        return y_fm + y_dnn + self.bias
+        return y_fm + y_dnn
 
-    # From # https://www.ismll.uni-hildesheim.de/pub/pdfs/Rendle2010FM.pdf:
-    # 0.5 * \sum^{k}_{f=1}( (\sum^{n}_{i=1} v_{i, f} x_{i} )^{2} - \sum^{n}_{i=1} v^{2}_{i, f} x^{2}_{i} )
-    # t1 = (\sum^{n}_{i=1} v_{i, f} x_{i} )^{2}
-    # t2 = \sum^{n}_{i=1} v^{2}_{i, f} x^{2}_{i}
-    def fm(self, fm_o1, dense_x_o2_list):
-        # equivalent to (\sum^{n}_{i=1} v_{i, f} x_{i} )^{2}, because x is one hot encoded
+    # https://www.ismll.uni-hildesheim.de/pub/pdfs/Rendle2010FM.pdf
+    def fm(self, x, dense_x_o2_list):
+        # First order part of FM
+        # \sum^{n}_{i=1} w_{i} x_{i}
+        dense_x_o1_list = [
+            embed_layer(
+                x[
+                    :, sum(self.feature_sizes[:i]) : sum(self.feature_sizes[: i + 1])
+                ].argmax(axis=1)
+            )
+            for i, embed_layer in enumerate(self.o1_embeddings)
+        ]
+        fm_o1 = Tensor.cat(*dense_x_o1_list, dim=1).sum(axis=1)
+
+        # Second order part of FM
+        # 0.5 * \sum^{k}_{f=1}( (\sum^{n}_{i=1} v_{i, f} x_{i} )^{2} - \sum^{n}_{i=1} v^{2}_{i, f} x^{2}_{i} )
+        # t1 = (\sum^{n}_{i=1} v_{i, f} x_{i} )^{2}
+        # t2 = \sum^{n}_{i=1} v^{2}_{i, f} x^{2}_{i}
         t1 = sum(dense_x_o2_list).square()
         t2 = sum([e * e for e in dense_x_o2_list])
-
         fm_o2 = 0.5 * (t1 - t2).sum(axis=1)
 
-        return fm_o1.sum(axis=1) + fm_o2.sum(axis=1)
+        return self.bias + fm_o1 + fm_o2
 
 
 d = DeepFM([3, 5, 2], 2)

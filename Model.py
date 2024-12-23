@@ -102,9 +102,3 @@ class DeepFM:
         fm_o2 = 0.5 * (t1 - t2).sum(axis=1)
 
         return self.bias + fm_o1 + fm_o2
-
-
-d = DeepFM([3, 5, 2], 2)
-test = Tensor([[0, 0, 1, 0, 1, 0, 0, 0, 1, 0], [0, 1, 0, 0, 0, 0, 1, 0, 1, 0]])
-print(test.numpy(), test.shape)
-d(test)
